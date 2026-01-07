@@ -1,0 +1,169 @@
+---
+route_hr_query:
+  description: 'Analyze the incoming HR query {employee_query} and make ONE definitive
+    routing decision. Determine the primary intent (Salary, Medical/Insurance, Leave
+    Policy, or ESIC) and specify which single specialist should handle this query.
+    Extract Employee ID and Official Email from session memory if available. Output
+    format: "ROUTE_TO: [SpecialistName] | INTENT: [IntentType] | EMPLOYEE_ID: [ID]
+    | EMAIL: [Email]"'
+  expected_output: 'A single routing decision in the format: "ROUTE_TO: [Salary_Specialist/Medical_Specialist/Leave_Specialist/ESIC_Specialist]
+    | INTENT: [Primary Intent] | EMPLOYEE_ID: [Employee ID] | EMAIL: [Official Email]
+    | REASONING: [Brief explanation for routing decision]"'
+  agent: hr_query_classifier
+create_support_ticket:
+  description: 'Use the Ticket Creation Tool to create a support ticket. Call the
+    tool with these exact parameters: title="HR Query - {employee_query}", reporter_email="{employee_email}",
+    reporter_employee_id="{employee_id}", reporter_user_id="{employee_id}", priority="medium".
+    Ensure the tool is actually invoked and confirm successful ticket creation.'
+  expected_output: A support ticket with unique ID, employee details, timestamp, and
+    initial query classification. Database entry confirmation with ticket details
+    and structure for sub-ticket management.
+  agent: ticket_manager
+  context:
+  - route_hr_query
+process_salary_queries:
+  description: "Check the routing decision from \"Route HR Query\" task. ONLY execute
+    if it contains \"ROUTE_TO: Salary_Specialist\" or query is about payslip/salary.\n\n**STEP
+    1**: Use Salary LightRAG Tool with these exact parameters:\n- query: {employee_query}\n-
+    employee_id: {employee_id}\n\n**STEP 2**: If LightRAG succeeds, extract and present
+    comprehensive salary information.\n\n**STEP 3**: If LightRAG fails (API errors,
+    missing env vars), respond:\n\"I'm unable to retrieve your specific payslip details
+    at the moment due to a system issue. Here's what you can do:\n• Access the employee
+    payslip portal for your latest payslip\n• Contact HR directly at [HR contact]
+    for immediate assistance  \n• Check your registered email - detailed payslip information
+    will be sent there\"\n\n**IMPORTANT**: Never say \"processing\" or create tickets
+    for system errors. Always provide actionable alternatives.\n\nIf query is NOT
+    salary-related, return \"NOT_EXECUTED - Query not routed to Salary Specialist\"."
+  expected_output: 'If routed: Comprehensive salary information with actual data from
+    Google Docs. If not routed: "NOT_EXECUTED - Query not routed to Salary Specialist"'
+  agent: salary_specialist
+  context:
+  - route_hr_query
+  - create_support_ticket
+process_medical_insurance_queries:
+  description: |-
+    Check the routing decision from "Route HR Query" task. ONLY execute if it contains "ROUTE_TO: Medical_Specialist" or query is about medical/insurance.
+
+    **MANDATORY STEP 1**: Use Medical LightRAG Tool with these exact parameters:
+    - query: {employee_query}
+    - employee_id: {employee_id}
+
+    **STEP 2**: Extract comprehensive medical information from LightRAG results including Medical Limit (₹), Used (₹), Available Balance (₹), ESIC IP No., Dispensary/Hospital, Medical Card Link, Eligible Family Members, etc.
+
+    If LightRAG query fails, provide general medical guidance or request additional information.
+
+    If query is NOT medical-related, return "NOT_EXECUTED - Query not routed to Medical Specialist".
+  expected_output: 'If routed: Comprehensive medical insurance information from Google
+    Docs. If not routed: "NOT_EXECUTED - Query not routed to Medical Specialist"'
+  agent: medical_insurance_specialist
+  context:
+  - route_hr_query
+  - create_support_ticket
+process_leave_policy_queries:
+  description: |-
+    Check the routing decision from "Route HR Query" task. ONLY execute if it contains "ROUTE_TO: Leave_Specialist" or query is about leave/vacation.
+
+    **MANDATORY STEP 1**: Use Leave LightRAG Tool with these exact parameters:
+    - query: {employee_query}
+    - employee_id: {employee_id}
+
+    **STEP 2**: Extract comprehensive leave information from LightRAG results including Leave Balance, Grade, Location, Joining Date, Leave Types Available, Leave Usage, etc.
+
+    If LightRAG query fails, provide general leave policy guidance or request additional information.
+
+    If query is NOT leave-related, return "NOT_EXECUTED - Query not routed to Leave Specialist".
+  expected_output: 'If routed: Comprehensive leave information from Google Docs. If
+    not routed: "NOT_EXECUTED - Query not routed to Leave Specialist"'
+  agent: leave_policy_specialist
+  context:
+  - route_hr_query
+  - create_support_ticket
+process_esic_queries:
+  description: |-
+    Check the routing decision from "Route HR Query" task. ONLY execute if it contains "ROUTE_TO: ESIC_Specialist" or query is about ESIC/social security.
+
+    **MANDATORY STEP 1**: Use ESIC LightRAG Tool with these exact parameters:
+    - query: {employee_query}
+    - employee_id: {employee_id}
+
+    **STEP 2**: Extract comprehensive ESIC information from LightRAG results including ESIC IP number, dispensary details, contribution calculations, ESIC card information, and eligibility status.
+
+    If LightRAG query fails, provide general ESIC guidance or request additional information.
+
+    If query is NOT ESIC-related, return "NOT_EXECUTED - Query not routed to ESIC Specialist".
+  expected_output: 'If routed: Comprehensive ESIC information from Google Docs. If
+    not routed: "NOT_EXECUTED - Query not routed to ESIC Specialist"'
+  agent: esic_specialist
+  context:
+  - route_hr_query
+  - create_support_ticket
+conditional_email_service:
+  description: "**CONDITIONAL EMAIL LOGIC**:\n\n**STEP 1: Query Intent Analysis**\n-
+    Analyze {employee_query} for detailed information request indicators:\n  Keywords:
+    \"complete\", \"detailed\", \"full\", \"entire\", \"send me\", \"email me\", \"forward\",\"detail\",\"details\"
+    \"payslip\",\"medical card\", \"ESIC card\"\n  Phrases: \"complete salary slip\",
+    \"full medical card\", \"detailed information\"\n- Classification: DETAILED_REQUEST
+    or BASIC_REQUEST\n\n**STEP 2: Resolution Status Check**  \n- Review specialist
+    agent outputs from context\n- Identify which specialist actually executed (not
+    \"NOT_EXECUTED\")\n- Verify specialist returned actual data vs error/fallback
+    messages\n- Classification: RESOLVED or UNRESOLVED\n\n**STEP 3: Email Decision
+    Matrix**\nIF DETAILED_REQUEST + RESOLVED:\n  → Send comprehensive email with specialist
+    data using Email Sending Tool\nIF BASIC_REQUEST + RESOLVED:\n  → Skip email (return
+    \"No email needed - basic query resolved conversationally\")\nIF ANY_REQUEST +
+    UNRESOLVED:\n  → Skip email (return \"No email sent - query unresolved, handled
+    by escalation\")\n\n**STEP 4: Email Execution (if required)**\n- Use Email Sending
+    Tool with professional formatting\n- Include comprehensive specialist data and
+    relevant links\n- Subject based on query type (e.g., \"Complete Salary Information\",
+    \"Detailed Medical Card\")\n- Professional greeting and closing with employee
+    name"
+  expected_output: "Based on intent analysis and resolution status:\n- If DETAILED_REQUEST
+    + RESOLVED: Confirmation of comprehensive email sent with specialist data\n- If
+    BASIC_REQUEST + RESOLVED: \"No email needed - basic query resolved conversationally\"
+    \ \n- If UNRESOLVED: \"No email sent - query unresolved, handled by escalation\"\nInclude
+    reasoning for the decision made."
+  agent: conditional_email_service_agent
+  context:
+  - route_hr_query
+  - process_salary_queries
+  - process_medical_insurance_queries
+  - process_leave_policy_queries
+  - process_esic_queries
+log_sub_tickets_and_handle_escalation:
+  description: 'Use the Ticket Creation Tool to create sub-tickets for each processed
+    query. For each topic handled (salary/medical/ESIC), invoke the Ticket Creation
+    Tool with specific titles like "Sub-ticket: Salary Query", "Sub-ticket: Medical
+    Query", etc. Use {employee_email}, {employee_id} for reporter details and priority
+    "low" for sub-tickets. Confirm actual tool usage and ticket IDs.'
+  expected_output: Complete logging report with sub-ticket entries for each processed
+    query, database storage confirmation, and escalation notifications sent if required.
+    All interaction logs properly recorded with timestamps and resolution status.
+  agent: ticket_manager
+  context:
+  - process_salary_queries
+  - process_medical_insurance_queries
+  - process_leave_policy_queries
+  - process_esic_queries
+  - conditional_email_service
+synthesize_final_hr_response:
+  description: |-
+    Synthesize the final response using only the output from the specialist agent that actually executed (not the ones that returned "NOT_EXECUTED"). Create a DIRECT, conversational response to the employee's query {employee_query} - NOT an email format.
+
+    **IMPORTANT**: This is NOT an email response. Create a direct answer that:
+    - Directly addresses the employee's question
+    - Uses conversational tone (not email format)
+    - Includes only the relevant information from the specialist agent
+    - Does NOT include email signatures, "Dear [Name]", "Best regards", etc.
+    - Provides the answer in a helpful, clear format
+  expected_output: A direct, conversational response that answers the employee's query
+    without email formatting. The response should be clear, informative, and helpful,
+    addressing the specific question asked by the employee.
+  agent: hr_response_synthesizer
+  context:
+  - route_hr_query
+  - process_salary_queries
+  - process_medical_insurance_queries
+  - process_leave_policy_queries
+  - process_esic_queries
+  - create_support_ticket
+  - conditional_email_service
+  - log_sub_tickets_and_handle_escalation

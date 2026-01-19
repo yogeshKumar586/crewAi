@@ -1,0 +1,61 @@
+    @listen("process_handoff")
+    def handle_handoff_query(self, classification_result: Dict[str, Any]):
+        """Handle queries requiring HR team escalation."""
+        print("🤝 Processing handoff query - escalating to HR team")
+        
+        # Create handoff agent
+        handoff_agent = create_handoff_specialist()
+        task = Task(
+            description=f"""
+            Respond to this query that requires HR team attention:
+            Query: {classification_result['employee_query']}
+            Employee ID: {classification_result['employee_id']}
+            
+            Provide a friendly response that:
+            1. Acknowledges their query
+            2. Explains it's been forwarded to the HR team
+            3. Mentions they'll receive email confirmation
+            4. Thanks them for their patience
+            
+            Keep it warm, professional, and concise.
+            """,
+            expected_output="Friendly escalation response",
+            agent=handoff_agent
+        )
+        
+        crew = Crew(agents=[handoff_agent], tasks=[task], verbose=True)
+        result = crew.kickoff()
+        
+        self.state.specialist_responses["handoff"] = str(result)
+        
+        # Create ticket via Chapter Apps API
+        ticket_tool = TicketCreationTool()
+        ticket_result = ticket_tool._run(
+            title=f"Handoff Query: {self.state.employee_query[:50]}",
+            reporter_email=self.state.employee_email,
+            reporter_employee_id=self.state.employee_id,
+            reporter_user_id=self.state.employee_id,
+            priority="high"  # Handoff queries are higher priority
+        )
+        
+        # Extract ticket ID
+        ticket_id = None
+        try:
+            json_match = re.search(r'\{.*\}', ticket_result, re.DOTALL)
+            if json_match:
+                response_json = json.loads(json_match.group(0))
+                if 'response_data' in response_json and 'data' in response_json['response_data']:
+                    ticket_id = response_json['response_data']['data'].get('id')
+        except:
+            pass
+        
+        if ticket_id:
+            self.state.main_ticket_id = ticket_id
+            print(f"📋 Handoff Ticket ID: {ticket_id}")
+        
+        # Always send email for handoff queries
+        self.state.classification['requires_detailed_email'] = True
+        self.state.classification['email_topics'] = ['handoff']
+        
+        return str(result)
+    

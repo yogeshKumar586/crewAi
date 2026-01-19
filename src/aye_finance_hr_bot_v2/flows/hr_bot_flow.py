@@ -146,7 +146,33 @@ class HRBotFlow(Flow[SessionState]):
             - bye: "Goodbye! Feel free to reach out anytime you need help."
             - out_of_scope: "I'm an HR assistant and can only help with salary, medical, leave, and ESIC queries."
 
-            Also detect if user requests detailed email (keywords: "complete", "detailed", "full", "send me", "email me").
+            **CRITICAL: Email Triggering Logic**
+            
+            Set requires_detailed_email=True  ONLY when user requests:
+            - Complete documents: "send me my payslip", "email my salary slip", "I need my full payslip"
+            - Full information: "what's my medical card details?", "what's my Esic card details?" "send complete medical details", "my ESIC Card details", "share my full leave records"
+            - Keywords indicating complete request: "send me", "email me", "forward", "share", "full", "complete", "entire", "whole document"
+            
+            Set requires_detailed_email=False and request_type="partial_information" when user asks for:
+            - Specific information: "what are my deductions?", "how much medical coverage?", "what is my ESIC number?"
+            - Partial data: "tell me my leave balance", "how much is my basic salary?", "show me my allowances"
+            - Keywords indicating partial request: "what is", "how much", "tell me", "show me", "check", "find out"
+            
+            **Examples:**
+            
+            ✅ COMPLETE DOCUMENT (requires_detailed_email=True):
+            - "Send me my payslip" → email_topics=["payslip"]
+            - "I need my complete medical card details" → email_topics=["medical_card"]
+            - "Email me my ESIC card" → email_topics=["esic_card"]
+            - "Can you share my full salary information?" → email_topics=["payslip"]
+            
+            ❌ PARTIAL INFORMATION (requires_detailed_email=False):
+            - "What are my deductions in the payslip?" → No email
+            - "How much medical coverage do I have?" → No email
+            - "What is my ESIC number?" → No email
+            - "Tell me my leave balance" → No email
+            - "How much is my basic salary?" → No email
+
             Support Hinglish (mix of Hindi and English).
             """
         

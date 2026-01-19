@@ -2,3 +2,5 @@
 __pycache__/
 lib/
 .DS_Store
+
+src/aye_finance_hr_bot_v2/flows/crew-hr bot.code-workspace

@@ -21,8 +21,8 @@ class IntentClassification(BaseModel):
         description="Direct response for non-HR queries (greeting, thank you, etc.)"
     )
     requires_detailed_email: bool = Field(
-        default=True,
-        description="Whether user requested detailed email"
+        default=False,
+        description="True only when user requests complete documents/full information (e.g., 'send me payslip', 'email medical card')"
     )
     email_topics: List[str] = Field(
         default_factory=list,

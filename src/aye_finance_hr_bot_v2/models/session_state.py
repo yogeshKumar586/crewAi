@@ -11,7 +11,7 @@ class SessionState(BaseModel):
     
     # User identification for external memory
     user_id: str = Field(
-        # default="default_user",
+        default="123",
         description="Unique user identifier for external memory storage"
     )
     

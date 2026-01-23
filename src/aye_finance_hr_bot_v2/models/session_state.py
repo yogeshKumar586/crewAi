@@ -9,6 +9,12 @@ import uuid
 class SessionState(BaseModel):
     """Structured state for Flow persistence - only credentials and current query."""
     
+    # User identification for external memory
+    user_id: str = Field(
+        default="default_user",
+        description="Unique user identifier for external memory storage"
+    )
+    
     # Core fields for persistence
     employee_id: Optional[str] = Field(
         default=None,
@@ -63,8 +69,8 @@ class SessionState(BaseModel):
         """Pydantic config."""
         json_schema_extra = {
             "example": {
-                "employee_id": "AYE12345",
-                "employee_email": "john@ayefinance.com",
+                # "employee_id": "AYE12345",
+                # "employee_email": "john@ayefinance.com",
                 "employee_query": "What is my salary?"
             }
         }

@@ -34,14 +34,62 @@ class HRBotFlow(Flow[SessionState]):
     
     @start()
     def validate_session(self):
-        """Step 1: Validate session and extract employee info."""
-        # Get current query directly from state (set by Streamlit)
+        """Step 1: Validate session with MongoDB external memory."""
+        
         employee_query = self.state.employee_query or ''
         
         print(f"🔍 Validating session for query: {employee_query}")
         print(f"📊 Current state - Employee ID: {self.state.employee_id}, Email: {self.state.employee_email}")
         
-        # If missing employee info, try to extract or ask
+        # ✅ Try to get credentials from MongoDB external memory
+        if not self.state.employee_id or not self.state.employee_email:
+            try:
+                print(f"🔍 Checking MongoDB for saved credentials (user: {self.state.user_id})...")
+                
+                from crewai.memory.external.external_memory import ExternalMemory
+                from aye_finance_hr_bot_v2.storage.mongo_storage import UserSpecificMongoStorage
+                
+                # Create MongoDB storage
+                mongo_storage = UserSpecificMongoStorage(user_id=self.state.user_id)
+                external_memory = ExternalMemory(storage=mongo_storage)
+                
+                # Search for saved credentials
+                results = external_memory.search("employee", limit=5)
+                
+                # Parse results
+                for result in results:
+                    value = result.get("value", "")
+                    
+                    # Extract employee_id
+                    if not self.state.employee_id and "employee_id:" in value.lower():
+                        match = re.search(r'employee_id:\s*(\w+)', value, re.IGNORECASE)
+                        if match:
+                            self.state.employee_id = match.group(1)
+                            print(f"📋 Found employee_id in MongoDB: {self.state.employee_id}")
+                    
+                    # Extract email
+                    if not self.state.employee_email and "email:" in value.lower():
+                        match = re.search(r'email:\s*([\w\.-]+@[\w\.-]+)', value, re.IGNORECASE)
+                        if match:
+                            self.state.employee_email = match.group(1)
+                            print(f"📋 Found email in MongoDB: {self.state.employee_email}")
+                
+                # If found in MongoDB, use them directly
+                if self.state.employee_id and self.state.employee_email:
+                    print(f"✅ Using credentials from MongoDB")
+                    # Return early - skip agent call
+                    return {
+                        "status": "validated",
+                        "employee_query": employee_query,
+                        "employee_id": self.state.employee_id,
+                        "employee_email": self.state.employee_email
+                    }
+            
+            except Exception as e:
+                print(f"⚠️ MongoDB error: {str(e)}")
+                # Continue with normal flow if MongoDB fails
+        
+        # ✅ If still missing, use agent to extract/ask
         if not self.state.employee_id or not self.state.employee_email:
             session_agent = create_session_manager()
             session_task = Task(
@@ -70,8 +118,6 @@ class HRBotFlow(Flow[SessionState]):
             
             # Try to parse extracted values
             if "FOUND:" in result_str:
-                # Extract employee_id and employee_email from response
-                import re
                 id_match = re.search(r'employee_id=([A-Z0-9]+)', result_str)
                 email_match = re.search(r'employee_email=([\w\.-]+@[\w\.-]+)', result_str)
                 
@@ -81,6 +127,26 @@ class HRBotFlow(Flow[SessionState]):
                 if email_match:
                     self.state.employee_email = email_match.group(1)
                     print(f"✅ Extracted Employee Email: {self.state.employee_email}")
+                
+                # ✅ Save to MongoDB for next time (no validation)
+                if self.state.employee_id and self.state.employee_email:
+                    try:
+                        from crewai.memory.external.external_memory import ExternalMemory
+                        from aye_finance_hr_bot_v2.storage.mongo_storage import UserSpecificMongoStorage
+                        from datetime import datetime
+                        
+                        mongo_storage = UserSpecificMongoStorage(user_id=self.state.user_id)
+                        external_memory = ExternalMemory(storage=mongo_storage)
+                        external_memory.save(
+                            f"employee_id: {self.state.employee_id}, email: {self.state.employee_email}",
+                            metadata={
+                                "type": "employee_credentials",
+                                "saved_at": datetime.now().isoformat()
+                            }
+                        )
+                        print(f"💾 Saved credentials to MongoDB")
+                    except Exception as e:
+                        print(f"⚠️ Failed to save to MongoDB: {str(e)}")
             
             # Check if we still need to ask user
             if not self.state.employee_id or not self.state.employee_email:
@@ -90,7 +156,6 @@ class HRBotFlow(Flow[SessionState]):
                         "message": result_str,
                         "requires_user_input": True
                     }
-        
         
         # Session validated, proceed to classification
         return {

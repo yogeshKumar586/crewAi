@@ -2,23 +2,41 @@
 
 #!/usr/bin/env python
 import sys
+import os
+from pathlib import Path
+from dotenv import load_dotenv, find_dotenv
+
+# Load environment variables - search for .env file in parent directories
+dotenv_path = find_dotenv(usecwd=True)
+if dotenv_path:
+    load_dotenv(dotenv_path=dotenv_path)
+    print(f"✅ Loaded .env from: {dotenv_path}")
+else:
+    # Fallback: try to find .env in project root
+    current_dir = Path(__file__).resolve()
+    for parent in current_dir.parents:
+        env_file = parent / '.env'
+        if env_file.exists():
+            load_dotenv(dotenv_path=env_file)
+            print(f"✅ Loaded .env from: {env_file}")
+            break
+
 from aye_finance_hr_bot_v2.flows.hr_bot_flow import HRBotFlow
 
 
 def run():
-    """Run the HR Bot Flow."""
+    """Run the HR Bot Flow with default user_id."""
     print("🤖 Starting HR Bot Flow...")
+    print("📝 Using default user_id: '123'\n")
     
     # Create flow instance
     flow = HRBotFlow()
     
-    # Set inputs in state
-    flow.state['employee_query'] = 'What is my salary?'
-    flow.state['employee_id'] = 'EMP12345'
-    flow.state['employee_email'] = 'john@ayefinance.com'
-    
-    # Run flow
-    result = flow.kickoff()
+    # Run flow with inputs (including user_id)
+    result = flow.kickoff(inputs={
+        'user_id': '123',  # Default user for testing
+        'employee_query': 'What is my salary?'
+    })
     
     print("\n" + "="*50)
     print("📊 RESULT:")
@@ -28,17 +46,16 @@ def run():
 
 
 def chat():
-    """Interactive chat mode."""
+    """Interactive chat mode with MongoDB persistence."""
     print("🤖 HR Bot - Interactive Chat Mode")
+    print("📝 Using default user_id: '123'")
     print("Type 'quit' to exit\n")
     
+    # Create flow instance ONCE (reuse for entire session)
     flow = HRBotFlow()
     
-    # Get employee info once
-    employee_id = input("Enter your Employee ID (e.g., EMP12345): ").strip()
-    employee_email = input("Enter your Email (e.g., john@ayefinance.com): ").strip()
-    
-    print("\n✅ Ready! Ask your HR questions...\n")
+    print("✅ Ready! Ask your HR questions...")
+    print("💡 Your credentials will be saved to MongoDB after first query\n")
     
     while True:
         query = input("You: ").strip()
@@ -51,12 +68,12 @@ def chat():
             continue
         
         try:
-            # Set inputs in state
-            flow.state['employee_query'] = query
-            flow.state['employee_id'] = employee_id
-            flow.state['employee_email'] = employee_email
+            # Run flow with inputs (MongoDB will handle credential persistence)
+            result = flow.kickoff(inputs={
+                'user_id': '123',  # Default user for testing
+                'employee_query': query
+            })
             
-            result = flow.kickoff()
             print(f"\n🤖 Bot: {result}\n")
         except Exception as e:
             print(f"\n❌ Error: {e}\n")

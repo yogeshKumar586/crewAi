@@ -18,10 +18,10 @@ class SessionState(BaseModel):
         default="123",
         description="Unique user identifier for external memory storage"
     )
-    current_message: str = Field(
-        default="",
-        description="Current user message"
-    )
+    # current_message: str = Field(
+    #     default="",
+    #     description="Current user message"
+    # )
     conversation_history: List[Dict[str, str]] = Field(
         default_factory=list,
         description="Full conversation history for context"
@@ -36,7 +36,10 @@ class SessionState(BaseModel):
         default=None,
         description="Employee official email"
     )
-
+    employee_query: Optional[str] = Field(
+        default=None,
+        description="Current employee query"
+    )
     
     # Processing fields (reset each query)
     classification: Optional[Dict] = Field(

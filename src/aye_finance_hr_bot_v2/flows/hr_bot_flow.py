@@ -38,7 +38,7 @@ class HRBotFlow(Flow[SessionState]):
         """Step 1: Validate session with MongoDB external memory."""
         
         # Get current message from state (set by backend via current_message input)
-        employee_query = self.state.current_message or self.state.employee_query or ''
+        employee_query = self.state.employee_query or ''
         
         print(f"\n{'='*60}")
         print(f"🔍 Flow ID: {self.state.flow_id}")
@@ -270,7 +270,6 @@ class HRBotFlow(Flow[SessionState]):
 
         # Store in state
         self.state.classification = classification.model_dump()
-        self.state.employee_query = employee_query
         self.state.employee_id = validation_result["employee_id"]
         self.state.employee_email = validation_result["employee_email"]
         

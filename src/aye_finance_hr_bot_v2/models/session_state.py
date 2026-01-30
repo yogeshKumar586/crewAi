@@ -7,12 +7,24 @@ import uuid
 
 
 class SessionState(BaseModel):
-    """Structured state for Flow persistence - only credentials and current query."""
+    """Structured state for Flow persistence with conversation history."""
     
-    # User identification for external memory
+    # Conversation tracking
+    flow_id: str = Field(
+        default="",
+        description="Unique conversation identifier for flow resumption"
+    )
     user_id: str = Field(
         default="123",
         description="Unique user identifier for external memory storage"
+    )
+    current_message: str = Field(
+        default="",
+        description="Current user message"
+    )
+    conversation_history: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description="Full conversation history for context"
     )
     
     # Core fields for persistence
@@ -24,10 +36,7 @@ class SessionState(BaseModel):
         default=None,
         description="Employee official email"
     )
-    employee_query: Optional[str] = Field(
-        default=None,
-        description="Current employee query"
-    )
+
     
     # Processing fields (reset each query)
     classification: Optional[Dict] = Field(

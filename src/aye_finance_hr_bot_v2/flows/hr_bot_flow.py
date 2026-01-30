@@ -37,7 +37,24 @@ class HRBotFlow(Flow[SessionState]):
     def validate_session(self):
         """Step 1: Validate session with MongoDB external memory."""
         
-        employee_query = self.state.employee_query or ''
+        # Get current message from state (set by backend via current_message input)
+        employee_query = self.state.current_message or self.state.employee_query or ''
+        
+        print(f"\n{'='*60}")
+        print(f"🔍 Flow ID: {self.state.flow_id}")
+        print(f"👤 User ID: {self.state.user_id}")
+        print(f"📝 Current message: {employee_query}")
+        print(f"💬 History length: {len(self.state.conversation_history)}")
+        print(f"{'='*60}\n")
+        
+        # Add current user message to conversation history
+        if employee_query and (not self.state.conversation_history or 
+                               self.state.conversation_history[-1].get("content") != employee_query):
+            self.state.conversation_history.append({
+                "role": "user",
+                "content": employee_query
+            })
+            print(f"📥 Added user message to history (total: {len(self.state.conversation_history)})")
         
         print(f"🔍 Validating session for query: {employee_query}")
         print(f"📊 Current state - Employee ID: {self.state.employee_id}, Email: {self.state.employee_email}")
@@ -697,7 +714,18 @@ class HRBotFlow(Flow[SessionState]):
         """Final step: Return response to user."""
         # If validation failed, return validation message
         if result.get("status") == "need_info":
-            return result["message"]
+            response = result["message"]
+        else:
+            # Otherwise return final response
+            response = self.state.final_response or "I'm sorry, I couldn't process your request."
         
-        # Otherwise return final response
-        return self.state.final_response or "I'm sorry, I couldn't process your request."
+        # Add bot response to conversation history
+        if response:
+            self.state.conversation_history.append({
+                "role": "assistant",
+                "content": response
+            })
+            print(f"📤 Added bot response to history (total: {len(self.state.conversation_history)})")
+        
+        return response
+

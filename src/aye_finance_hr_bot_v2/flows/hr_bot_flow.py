@@ -32,7 +32,25 @@ from aye_finance_hr_bot_v2.tools.email_sending_tool import EmailSendingTool
 class HRBotFlow(Flow[SessionState]):
     """Main HR Bot Flow with conditional routing and persistent state."""
 
+    def _build_conversation_context(self) -> str:
+        """Build conversation context from history for agent use."""
+        if len(self.state.conversation_history) <= 1:
+            return "This is the first message in the conversation."
+        
+        context_lines = ["=== PREVIOUS CONVERSATION ==="]
+        # Exclude the current user message (last item in history)
+        for msg in self.state.conversation_history[:-1]:
+            role = "User" if msg["role"] == "user" else "Assistant"
+            content = msg["content"]
+            # Limit each message to 500 characters to avoid token overflow
+            if len(content) > 500:
+                content = content[:500] + "..."
+            context_lines.append(f"{role}: {content}")
+        
+        context_lines.append("=== END OF PREVIOUS CONVERSATION ===")
+        return "\n".join(context_lines)
     
+
     @start()
     def validate_session(self):
         """Step 1: Validate session with MongoDB external memory."""
@@ -55,6 +73,15 @@ class HRBotFlow(Flow[SessionState]):
                 "content": employee_query
             })
             print(f"📥 Added user message to history (total: {len(self.state.conversation_history)})")
+        
+        # 🔍 DEBUG: Show loaded conversation history
+        if len(self.state.conversation_history) > 1:
+            print(f"\n📜 LOADED CONVERSATION HISTORY FROM CLOUD:")
+            for i, msg in enumerate(self.state.conversation_history[:-1], 1):  # Exclude current message
+                role_emoji = "👤" if msg['role'] == 'user' else "🤖"
+                content_preview = msg['content'][:80] + "..." if len(msg['content']) > 80 else msg['content']
+                print(f"   {i}. {role_emoji} {msg['role'].upper()}: {content_preview}")
+            print()
         
         print(f"🔍 Validating session for query: {employee_query}")
         print(f"📊 Current state - Employee ID: {self.state.employee_id}, Email: {self.state.employee_email}")
@@ -270,6 +297,7 @@ class HRBotFlow(Flow[SessionState]):
 
         # Store in state
         self.state.classification = classification.model_dump()
+        self.state.employee_query = employee_query
         self.state.employee_id = validation_result["employee_id"]
         self.state.employee_email = validation_result["employee_email"]
         
@@ -278,6 +306,14 @@ class HRBotFlow(Flow[SessionState]):
             # General conversation - return response directly
             print(f"💬 General conversation detected")
             self.state.final_response = classification.conversation_response
+            
+            # Add greeting response to conversation history
+            self.state.conversation_history.append({
+                "role": "assistant",
+                "content": classification.conversation_response
+            })
+            print(f"📤 Added greeting response to history (total: {len(self.state.conversation_history)})")
+            
             return "respond_to_user"
         
         # HR query - route to specialists
@@ -391,14 +427,21 @@ class HRBotFlow(Flow[SessionState]):
         """Process salary queries."""
         print("💰 Processing salary query")
         
+        # Build conversation context
+        conversation_context = self._build_conversation_context()
+        
         salary_agent = create_salary_specialist([SalaryLightRAGTool()])
         task = Task(
             description=f"""
-            Answer this salary query: {classification_result['employee_query']}
+            {conversation_context}
+            
+            CURRENT QUERY:
+            {self.state.employee_query}
             Employee ID: {classification_result['employee_id']}
             
             Use Salary LightRAG Tool to fetch accurate data.
             Provide clear, conversational response about salary, payslip, components, deductions, etc.
+            If the user references previous conversation, use the context above to provide relevant answers.
             """,
             expected_output="Salary information response",
             agent=salary_agent
@@ -441,14 +484,21 @@ class HRBotFlow(Flow[SessionState]):
         """Process medical/ESIC queries."""
         print("🏥 Processing medical/ESIC query")
         
+        # Build conversation context
+        conversation_context = self._build_conversation_context()
+        
         medical_agent = create_medical_specialist([MedicalLightRAGTool(), EsicLightRagTool()])
         task = Task(
             description=f"""
-            Answer this medical/insurance query: {classification_result['employee_query']}
+            {conversation_context}
+            
+            CURRENT QUERY:
+            {self.state.employee_query}
             Employee ID: {classification_result['employee_id']}
             
             Use Medical and ESIC LightRAG Tools to fetch accurate data.
             Provide clear, conversational response about medical insurance, ESIC, card status, coverage, etc.
+            If the user references previous conversation, use the context above to provide relevant answers.
             """,
             expected_output="Medical/ESIC information response",
             agent=medical_agent
@@ -490,14 +540,21 @@ class HRBotFlow(Flow[SessionState]):
         """Process leave queries."""
         print("🌴 Processing leave query")
         
+        # Build conversation context
+        conversation_context = self._build_conversation_context()
+        
         leave_agent = create_leave_specialist([LeaveLightRAGTool()])
         task = Task(
             description=f"""
-            Answer this leave query: {classification_result['employee_query']}
+            {conversation_context}
+            
+            CURRENT QUERY:
+            {self.state.employee_query}
             Employee ID: {classification_result['employee_id']}
             
             Use Leave LightRAG Tool to fetch accurate data.
             Provide clear, conversational response about leave balance, types, rules, etc.
+            If the user references previous conversation, use the context above to provide relevant answers.
             """,
             expected_output="Leave information response",
             agent=leave_agent
@@ -541,19 +598,26 @@ class HRBotFlow(Flow[SessionState]):
         print("🤝 Processing handoff query - escalating to HR team")
         
         # Create handoff agent
+        # Build conversation context
+        conversation_context = self._build_conversation_context()
+        
         handoff_agent = create_handoff_specialist()
         task = Task(
             description=f"""
-            Respond to this query that requires HR team attention:
-            Query: {classification_result['employee_query']}
+            {conversation_context}
+            
+            CURRENT QUERY:
+            {self.state.employee_query}
             Employee ID: {classification_result['employee_id']}
             
+            Respond to this query that requires HR team attention.
             Provide a friendly response that:
             1. Acknowledges their query
             2. Explains it's been forwarded to the HR team
             3. Mentions they'll receive email confirmation
             4. Thanks them for their patience
             
+            If the user references previous conversation, use the context above to provide relevant answers.
             Keep it warm, professional, and concise.
             """,
             expected_output="Friendly escalation response",
@@ -704,6 +768,14 @@ class HRBotFlow(Flow[SessionState]):
             final_response += f"\n\n---\n\n✅ **Detailed information is being sent to:** {self.state.employee_email}"
         
         self.state.final_response = final_response
+        
+        # Add final specialist response to conversation history
+        self.state.conversation_history.append({
+            "role": "assistant",
+            "content": final_response
+        })
+        print(f"📤 Added specialist response to history (total: {len(self.state.conversation_history)})")
+        
         # Don't return dict - let respond_to_user handle final output
         return final_response
     
@@ -718,13 +790,8 @@ class HRBotFlow(Flow[SessionState]):
             # Otherwise return final response
             response = self.state.final_response or "I'm sorry, I couldn't process your request."
         
-        # Add bot response to conversation history
-        if response:
-            self.state.conversation_history.append({
-                "role": "assistant",
-                "content": response
-            })
-            print(f"📤 Added bot response to history (total: {len(self.state.conversation_history)})")
-        
+        # Response already added to history in classify_and_route or synthesize_response
+        # Just return the final response
         return response
+
 
